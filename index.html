@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <title>Amlak One — Driver Reservations</title>
+  <style>
+    :root{
+      --bg:#0f1720; --surface:#172230; --surface-2:#1f2e40; --line:#2b3b50;
+      --text:#e8eef5; --muted:#9fb0c3; --brand:#1fa97a; --brand-2:#17c0a8;
+      --warn:#e0a106; --danger:#e25555; --ok:#23b26b; --info:#3b82f6;
+      --radius:14px; --shadow:0 8px 30px rgba(0,0,0,.35);
+    }
+    *{box-sizing:border-box}
+    html,body{margin:0;padding:0;background:var(--bg);color:var(--text);
+      font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+      -webkit-font-smoothing:antialiased;font-size:15px;line-height:1.5}
+    a{color:var(--brand-2)}
+    .hidden{display:none !important}
+    /* ---- Layout ---- */
+    header.appbar{position:sticky;top:0;z-index:20;display:flex;align-items:center;
+      justify-content:space-between;gap:12px;padding:12px 16px;background:var(--surface);
+      border-bottom:1px solid var(--line)}
+    .brand{display:flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.3px}
+    .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--brand)}
+    .who{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted)}
+    .role-pill{padding:3px 10px;border-radius:999px;background:var(--surface-2);
+      border:1px solid var(--line);color:var(--text);font-size:12px;text-transform:capitalize}
+    main{max-width:1100px;margin:0 auto;padding:18px 14px 80px}
+    /* ---- Cards / tables ---- */
+    .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+      padding:18px;margin-bottom:16px;box-shadow:var(--shadow)}
+    .card h2{margin:0 0 14px;font-size:17px}
+    .card h3{margin:18px 0 8px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px}
+    .grid{display:grid;gap:12px}
+    @media(min-width:760px){.grid.cols-2{grid-template-columns:1fr 1fr}.grid.cols-3{grid-template-columns:1fr 1fr 1fr}}
+    label{display:block;font-size:12px;color:var(--muted);margin:0 0 5px}
+    input,select,textarea,button{font:inherit}
+    input,select,textarea{width:100%;padding:11px 12px;background:var(--surface-2);
+      border:1px solid var(--line);border-radius:10px;color:var(--text);outline:none}
+    input:focus,select:focus,textarea:focus{border-color:var(--brand)}
+    textarea{min-height:64px;resize:vertical}
+    .btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;cursor:pointer;
+      border:1px solid transparent;border-radius:10px;padding:11px 16px;font-weight:600;
+      background:var(--brand);color:#04231a}
+    .btn:hover{filter:brightness(1.07)}
+    .btn.secondary{background:var(--surface-2);color:var(--text);border-color:var(--line)}
+    .btn.ghost{background:transparent;color:var(--muted);border-color:var(--line)}
+    .btn.danger{background:var(--danger);color:#fff}
+    .btn.ok{background:var(--ok);color:#04231a}
+    .btn.sm{padding:7px 11px;font-size:13px}
+    .btn:disabled{opacity:.5;cursor:not-allowed}
+    .row-actions{display:flex;gap:8px;flex-wrap:wrap}
+    table{width:100%;border-collapse:collapse;font-size:14px}
+    th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+    th{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.5px}
+    .table-wrap{overflow-x:auto}
+    /* ---- Status badges ---- */
+    .badge{display:inline-block;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:600}
+    .s-pending{background:#3a2f06;color:#f0c43a}
+    .s-accepted{background:#08361f;color:#3fe08c}
+    .s-rejected{background:#3a1414;color:#ff8a8a}
+    .s-completed{background:#0d2740;color:#6fb6ff}
+    .s-cancelled{background:#2a2f37;color:#9fb0c3}
+    .s-no_show{background:#33240a;color:#e0a106}
+    /* ---- Tabs / segmented ---- */
+    .tabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap}
+    .tab{padding:8px 14px;border-radius:999px;border:1px solid var(--line);background:var(--surface);
+      color:var(--muted);cursor:pointer;font-size:13px}
+    .tab.active{background:var(--brand);color:#04231a;border-color:transparent;font-weight:600}
+    /* ---- Stat tiles ---- */
+    .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px}
+    .tile{background:var(--surface-2);border:1px solid var(--line);border-radius:12px;padding:14px}
+    .tile .n{font-size:26px;font-weight:800}
+    .tile .l{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+    /* ---- Login ---- */
+    .login-wrap{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px}
+    .login-card{width:100%;max-width:380px}
+    .seg{display:flex;background:var(--surface-2);border:1px solid var(--line);border-radius:10px;padding:4px;margin-bottom:14px}
+    .seg button{flex:1;border:none;background:transparent;color:var(--muted);padding:9px;border-radius:7px;cursor:pointer}
+    .seg button.active{background:var(--brand);color:#04231a;font-weight:600}
+    .muted{color:var(--muted);font-size:13px}
+    .err{background:#3a1414;border:1px solid #5a1f1f;color:#ff9b9b;padding:10px 12px;border-radius:10px;margin:10px 0;font-size:13px}
+    .ok-msg{background:#08361f;border:1px solid #14502f;color:#7ef0ab;padding:10px 12px;border-radius:10px;margin:10px 0;font-size:13px}
+    /* ---- Modal ---- */
+    .modal-bg{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;
+      justify-content:center;padding:20px;z-index:50}
+    .modal{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+      padding:22px;max-width:360px;width:100%;text-align:center}
+    #qrcode{display:flex;justify-content:center;margin:14px 0;background:#fff;padding:14px;border-radius:10px}
+    .meta{font-size:13px;color:var(--muted)}
+    .res-loc{font-size:13px;color:var(--muted)}
+    .deeplink-banner{background:var(--info);color:#fff;padding:10px 14px;border-radius:10px;margin-bottom:14px;font-size:13px}
+  </style>
+</head>
+<body>
+
+  <!-- ===================== LOGIN ===================== -->
+  <div id="loginView" class="login-wrap">
+    <div class="card login-card">
+      <div class="brand" style="margin-bottom:6px"><span class="dot"></span> Amlak One</div>
+      <h2 id="loginTitle">Driver Reservations</h2>
+      <p class="muted" id="loginSubtitle">Sign in with your phone to continue.</p>
+
+      <div id="salesBanner" class="deeplink-banner hidden">📱 Reserve a driver — sign up with your Amlak One email + phone.</div>
+
+      <div class="seg">
+        <button id="segPhone" class="active" type="button">Sign in (OTP)</button>
+        <button id="segEmail" type="button">Admin (email)</button>
+      </div>
+
+      <!-- Phone OTP login / self sign-up -->
+      <div id="phoneBox">
+        <div id="phoneStep1">
+          <label>Full name <span id="nameReq" class="hidden">*</span></label>
+          <input id="loginName" type="text" placeholder="Your name" autocomplete="name" />
+          <div style="height:10px"></div>
+          <label>Company email <span class="muted">(first-time sales — must be @amlakone.ae)</span></label>
+          <input id="loginCoEmail" type="email" placeholder="you@amlakone.ae" autocomplete="email" />
+          <div style="height:10px"></div>
+          <label>Mobile number *</label>
+          <input id="loginPhone" type="tel" placeholder="0501234567 or 971501234567" autocomplete="tel" />
+          <div style="height:14px"></div>
+          <button id="btnSendOtp" class="btn" style="width:100%">Send code</button>
+        </div>
+        <div id="phoneStep2" class="hidden">
+          <label>Enter the 6-digit code sent to your phone</label>
+          <input id="loginOtp" type="text" inputmode="numeric" placeholder="123456" />
+          <div style="height:14px"></div>
+          <button id="btnVerifyOtp" class="btn" style="width:100%">Verify & sign in</button>
+          <div style="height:8px"></div>
+          <button id="btnOtpBack" class="btn ghost sm" style="width:100%">Use a different number</button>
+        </div>
+        <p class="muted" style="margin-top:12px">Drivers &amp; managers: just enter your phone (you're already registered).
+        Sales: add your <b>@amlakone.ae</b> email the first time.</p>
+      </div>
+
+      <!-- Email login (admin) -->
+      <div id="emailBox" class="hidden">
+        <label>Email</label>
+        <input id="loginEmail" type="email" placeholder="admin@amlakone.ae" autocomplete="username" />
+        <div style="height:10px"></div>
+        <label>Password</label>
+        <input id="loginPassword" type="password" placeholder="••••••••" autocomplete="current-password" />
+        <div style="height:14px"></div>
+        <button id="btnEmailLogin" class="btn" style="width:100%">Sign in</button>
+      </div>
+
+      <div id="loginMsg"></div>
+    </div>
+  </div>
+
+  <!-- ===================== APP ===================== -->
+  <div id="appView" class="hidden">
+    <header class="appbar">
+      <div class="brand"><span class="dot"></span> Amlak One</div>
+      <div class="who">
+        <span id="whoName"></span>
+        <span id="whoRole" class="role-pill"></span>
+        <button id="btnLogout" class="btn ghost sm">Logout</button>
+      </div>
+    </header>
+    <main id="appMain"><!-- rendered by app.js --></main>
+  </div>
+
+  <!-- ===================== CONFIG WARNING ===================== -->
+  <div id="configWarn" class="login-wrap hidden">
+    <div class="card login-card">
+      <h2>⚙️ One step left</h2>
+      <p class="muted">Open <code>config.js</code> and paste your Supabase <b>Project URL</b> and <b>anon key</b>
+      (Supabase Dashboard → Project Settings → API), then refresh this page.</p>
+    </div>
+  </div>
+
+  <!-- QR modal mount -->
+  <div id="modalMount"></div>
+
+  <!-- Libraries -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdn.jsdelivr.net/gh/davidshimjs/qrcodejs@04f46c6a0708418cb7b96fc563eacae0fbf77674/qrcode.min.js"></script>
+  <script src="config.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
