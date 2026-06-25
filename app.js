@@ -147,7 +147,7 @@ function wireLogin() {
     $('btnEmailLogin').disabled = true;
     const { error } = await SB.auth.signInWithPassword({ email, password });
     $('btnEmailLogin').disabled = false;
-    if (error) setMsg(error.message, true);
+    if (error) { console.error('signInWithPassword error:', error); setMsg(fmtAuthError(error), true); }
   };
 
   $('btnSendOtp').onclick = async () => {
@@ -165,7 +165,7 @@ function wireLogin() {
       options: { data: { full_name: full_name || undefined, email: coEmail || undefined } }
     });
     $('btnSendOtp').disabled = false;
-    if (error) return setMsg(error.message, true);
+    if (error) { console.error('signInWithOtp error:', error); return setMsg(fmtAuthError(error), true); }
     $('phoneStep1').classList.add('hidden');
     $('phoneStep2').classList.remove('hidden');
     setMsg('Code sent. Check your SMS.', false);
@@ -174,7 +174,7 @@ function wireLogin() {
     setMsg('');
     const token = $('loginOtp').value.trim();
     const { error } = await SB.auth.verifyOtp({ phone: pendingPhone, token, type: 'sms' });
-    if (error) setMsg(error.message, true);
+    if (error) { console.error('verifyOtp error:', error); setMsg(fmtAuthError(error), true); }
   };
   $('btnOtpBack').onclick = () => { $('phoneStep2').classList.add('hidden'); $('phoneStep1').classList.remove('hidden'); setMsg(''); };
 }
@@ -182,6 +182,16 @@ function wireLogin() {
 function setMsg(text, isErr) {
   const box = $('loginMsg');
   box.innerHTML = text ? `<div class="${isErr ? 'err' : 'ok-msg'}">${esc(text)}</div>` : '';
+}
+
+// Turn a Supabase/JS error into readable text (avoids showing "{}")
+function fmtAuthError(error) {
+  if (!error) return 'Unknown error';
+  if (typeof error === 'string') return error;
+  const t = error.message || error.error_description || error.msg || error.error || error.hint || '';
+  if (t) return error.status ? `${t} (${error.status})` : t;
+  try { const s = JSON.stringify(error); if (s && s !== '{}') return s; } catch (_) {}
+  return 'Could not send the code. Please check the number and try again.';
 }
 
 // =============================================================================
