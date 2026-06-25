@@ -353,6 +353,18 @@ async function createReservation() {
   if (!payload.client_name || !payload.driver_id || !payload.pickup_at) {
     msg.textContent = 'Client, driver and pickup time are required.'; msg.style.color = 'var(--danger)'; return;
   }
+
+  // Upfront conflict check (warn, but allow)
+  msg.style.color = 'var(--muted)'; msg.textContent = 'Checking driver availability…';
+  const endISO = payload.return_at
+    || new Date(new Date(payload.pickup_at).getTime() + (CONFIG.DEFAULT_TRIP_HOURS || 2) * 3600000).toISOString();
+  const { data: busy } = await SB.rpc('driver_busy', { p_driver: payload.driver_id, p_start: payload.pickup_at, p_end: endISO });
+  if (busy && busy.length) {
+    const b = busy[0];
+    const ok = confirm(`⚠ This driver already has an ACCEPTED trip from ${fmtDateTime(b.pickup_at)} to ${fmtDateTime(b.return_at)} (Ref ${b.reference_code}).\n\nThey can only do one. Book anyway?`);
+    if (!ok) { msg.style.color = 'var(--muted)'; msg.textContent = 'Cancelled — pick another driver or time.'; return; }
+  }
+
   $('btnCreate').disabled = true; msg.style.color = 'var(--muted)'; msg.textContent = 'Saving…';
   const { error } = await SB.from('reservations').insert(payload);
   $('btnCreate').disabled = false;
