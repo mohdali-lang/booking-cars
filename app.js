@@ -359,6 +359,7 @@ async function createReservation() {
     notes: $('f_notes').value.trim() || null,
     lat: $('f_lat').value ? Number($('f_lat').value) : null,
     lng: $('f_lng').value ? Number($('f_lng').value) : null,
+    agent_name: profile.full_name || null,
   };
   if (!payload.client_name || !payload.driver_id || !payload.pickup_at) {
     msg.textContent = 'Client, driver and pickup time are required.'; msg.style.color = 'var(--danger)'; return;
@@ -451,6 +452,7 @@ function driverCard(r) {
       <div>
         <div style="font-weight:700">${esc(r.client_name)} · ${statusBadge(r.status)}</div>
         <div class="meta">${esc(r.purpose.replace('_',' '))} · ${esc(r.reference_code)}</div>
+        <div class="meta">👤 Requested by ${esc(r.agent_name || 'Sales')}</div>
         <div class="res-loc">📍 ${esc(r.location_text || '—')} ${r.location_url ? `· <a href="${esc(r.location_url)}" target="_blank">map</a>` : ''}</div>
         <div class="meta">🕑 ${fmtDateTime(r.pickup_at)} → ${fmtDateTime(r.return_at)}</div>
         ${r.client_phone ? `<div class="meta">📞 <a href="tel:${esc(r.client_phone)}">${esc(r.client_phone)}</a></div>` : ''}
