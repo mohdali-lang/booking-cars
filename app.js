@@ -942,6 +942,9 @@ function deeplinkBanner() {
 // =============================================================================
 const ROOM_PURPOSES = ['Client meeting', 'Internal meeting', 'Interview', 'Training', 'Other'];
 const fmtRange = (s, e) => `${fmtDate(s)} · ${fmtTime(s)}–${fmtTime(e)}`;
+const hh = (h) => String(h).padStart(2, '0');
+const hourOptions = (from, to) => Array.from({ length: Math.max(0, to - from + 1) }, (_, i) =>
+  `<option value="${hh(from + i)}:00">${hh(from + i)}:00</option>`).join('');
 const roomName = (id) => (roomsCache.find(r => r.id === id) || {}).name || '—';
 
 async function loadRooms() {
@@ -967,9 +970,9 @@ async function renderRoomBooking() {
           ${[9, 12].map(f => `<optgroup label="${f}th floor">${roomsCache.filter(r => r.floor === f)
             .map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</optgroup>`).join('')}
         </select></div>
-        <div><label>Date *</label><input id="rb_date" type="date" min="${todayKey()}"/></div>
-        <div><label>From *</label><input id="rb_from" type="time"/></div>
-        <div><label>To *</label><input id="rb_to" type="time"/></div>
+        <div><label>Date *</label><input id="rb_date" type="date" min="${todayKey()}" max="${dayKey(new Date(Date.now() + 365 * 86400000))}"/></div>
+        <div><label>From *</label><select id="rb_from"><option value="">Select…</option>${hourOptions(7, 21)}</select></div>
+        <div><label>To * <span class="meta">(2 hours by default)</span></label><select id="rb_to"><option value="">Select…</option></select></div>
         <div><label>Purpose *</label><select id="rb_purpose">
           ${ROOM_PURPOSES.map(p => `<option>${p}</option>`).join('')}</select></div>
         <div><label>Team leader name *</label><input id="rb_leader" placeholder="Team leader full name"/></div>
@@ -986,6 +989,12 @@ async function renderRoomBooking() {
       <div id="rb_mine" class="table-wrap">Loading…</div>
     </div>`;
 
+  // Picking a start time fills "To" with start + 2 hours (can be changed, hourly steps)
+  $('rb_from').onchange = () => {
+    const h = $('rb_from').value === '' ? null : Number($('rb_from').value.slice(0, 2));
+    $('rb_to').innerHTML = '<option value="">Select…</option>' + (h == null ? '' : hourOptions(h + 1, 22));
+    if (h != null) $('rb_to').value = hh(Math.min(h + 2, 22)) + ':00';
+  };
   ['rb_room', 'rb_date'].forEach(id => $(id).onchange = showRoomAvailability);
   $('rb_submit').onclick = submitRoomBooking;
   window.__refresh = () => { loadMyRoomBookings(); showRoomAvailability(); };
@@ -1011,6 +1020,7 @@ async function submitRoomBooking() {
   const from = $('rb_from').value, to = $('rb_to').value;
   const team_leader = $('rb_leader').value.trim();
   if (!room_id || !date || !from || !to || !team_leader) return err('Room, date, time and team leader are required.');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < todayKey()) return err('Pick a valid date from the calendar (today or later).');
   const start = new Date(`${date}T${from}`), end = new Date(`${date}T${to}`);
   if (end <= start) return err('End time must be after the start time.');
   if (start < new Date(Date.now() - 5 * 60000)) return err('Start time is in the past.');
@@ -1028,7 +1038,8 @@ async function submitRoomBooking() {
   $('rb_submit').disabled = false;
   if (error) return err(error.message);
   msg.style.color = 'var(--ok)'; msg.textContent = '✓ Request sent to George for approval.';
-  ['rb_leader', 'rb_notes', 'rb_from', 'rb_to'].forEach(id => $(id).value = '');
+  ['rb_leader', 'rb_notes', 'rb_from'].forEach(id => $(id).value = '');
+  $('rb_to').innerHTML = '<option value="">Select…</option>';
   loadMyRoomBookings();
 }
 
