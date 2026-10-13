@@ -12,6 +12,9 @@ let mgrFilter = 'all';  // manager status filter
 let mgrDate = '';       // manager day filter (YYYY-MM-DD or '')
 let drvFilter = 'pending';
 let drvDate = '';       // driver day filter
+let isApprover = false; // can approve/reject meeting room requests (George / admin)
+let roomsCache = [];    // meeting_rooms rows
+let rbFilter = 'pending', rbRoom = '', rbDate = '', rbTab = 'requests', calDate = '';
 
 const $ = (id) => document.getElementById(id);
 const el = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstChild; };
@@ -218,8 +221,16 @@ async function onSignedIn(user) {
 
   if (!profile.is_active) { renderAwaitingApproval(); return; }
 
+  try { const { data: ap } = await SB.rpc('is_room_approver'); isApprover = !!ap; } catch (e) { isApprover = false; }
+
+  // Home button (everyone except drivers) returns to the "Car / Meeting room" choice
+  if (profile.role !== 'driver') {
+    $('btnHome').classList.remove('hidden');
+    $('btnHome').onclick = () => landing();
+  }
+
   subscribeRealtime();
-  routeHome();
+  landing();
 }
 
 function renderAwaitingApproval() {
@@ -240,16 +251,50 @@ function subscribeRealtime() {
   realtimeChan = SB.channel('res-changes')
     .on('postgres_changes', { event: '*', schema: 'public', table: 'reservations' }, () => {
       if (typeof window.__refresh === 'function') window.__refresh();
+    })
+    .on('postgres_changes', { event: '*', schema: 'public', table: 'room_bookings' }, () => {
+      if (typeof window.__refresh === 'function') window.__refresh();
     }).subscribe();
 }
 
 // =============================================================================
 // ROUTER (role-based home)
 // =============================================================================
-function routeHome() {
+function routeHome() {            // the CAR booking home (unchanged behaviour)
   if (profile.role === 'driver') return renderDriver();
   if (isManager()) return renderManager();
   return renderSales();
+}
+
+// First screen after login: drivers go straight to their trips; everyone else
+// chooses Book a Car or Book a Meeting Room.
+async function landing() {
+  window.__refresh = null;
+  if (profile.role === 'driver') return renderDriver();
+  const canManageRooms = isManager() || isApprover;
+  $('appMain').innerHTML = `
+    <div style="max-width:760px;margin:30px auto 0">
+      <h2 style="text-align:center;margin:0 0 4px">What would you like to do?</h2>
+      <p class="muted" style="text-align:center;margin:0 0 20px">Hi ${esc((profile.full_name || '').split(' ')[0] || 'there')} 👋</p>
+      <div class="grid cols-2">
+        <div class="card choice" id="chCar"><div class="big">🚗</div><h2>Book a Car</h2>
+          <p class="muted">Reserve a driver for a client viewing or meeting.</p></div>
+        <div class="card choice" id="chRoom"><div class="big">🏢</div><h2>Book a Meeting Room</h2>
+          <p class="muted">9th floor (4 rooms) · 12th floor (1 room)</p></div>
+      </div>
+      ${canManageRooms ? `<div class="card choice" id="chRoomAdmin" style="margin-top:0">
+          <h2 style="margin:0">📋 Meeting room ${isApprover ? 'requests &amp; approvals' : 'tracking'} <span id="chPending"></span></h2>
+          <p class="muted" style="margin:6px 0 0">${isApprover ? 'Approve or reject requests, see the room calendar and usage.' : 'View all room bookings, the room calendar and usage.'}</p></div>` : ''}
+    </div>`;
+  $('chCar').onclick = () => routeHome();
+  $('chRoom').onclick = () => renderRoomBooking();
+  if (canManageRooms) {
+    $('chRoomAdmin').onclick = () => renderRoomAdmin();
+    try {
+      const { count } = await SB.from('room_bookings').select('id', { count: 'exact', head: true }).eq('status', 'pending');
+      if (count && $('chPending')) $('chPending').innerHTML = `<span class="badge s-pending">${count} pending</span>`;
+    } catch (e) { /* patch_12 not run yet */ }
+  }
 }
 
 // =============================================================================
@@ -890,4 +935,276 @@ function deeplinkBanner() {
   const ref = p.get('ref');
   if (ref) return `<div class="deeplink-banner">🔗 Opened from QR — reservation <b>${esc(ref)}</b>. It's highlighted in your list below.</div>`;
   return '';
+}
+
+// =============================================================================
+// MEETING ROOMS
+// =============================================================================
+const ROOM_PURPOSES = ['Client meeting', 'Internal meeting', 'Interview', 'Training', 'Other'];
+const fmtRange = (s, e) => `${fmtDate(s)} · ${fmtTime(s)}–${fmtTime(e)}`;
+const roomName = (id) => (roomsCache.find(r => r.id === id) || {}).name || '—';
+
+async function loadRooms() {
+  const { data, error } = await SB.from('meeting_rooms').select('*').eq('is_active', true).order('sort_order');
+  if (error) throw error;
+  roomsCache = data || [];
+  return roomsCache;
+}
+
+// ---------- Requester: book a room ----------
+async function renderRoomBooking() {
+  const main = $('appMain');
+  main.innerHTML = `<div class="card">Loading…</div>`;
+  try { await loadRooms(); }
+  catch (e) { main.innerHTML = `<div class="card"><p class="err">Meeting rooms are not set up yet (${esc(e.message)}). Ask the admin to run patch_12.</p></div>`; return; }
+
+  main.innerHTML = `
+    <div class="card">
+      <h2>🏢 Book a meeting room</h2>
+      <div class="grid cols-2">
+        <div><label>Room *</label><select id="rb_room">
+          <option value="">Select a room…</option>
+          ${[9, 12].map(f => `<optgroup label="${f}th floor">${roomsCache.filter(r => r.floor === f)
+            .map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</optgroup>`).join('')}
+        </select></div>
+        <div><label>Date *</label><input id="rb_date" type="date" min="${todayKey()}"/></div>
+        <div><label>From *</label><input id="rb_from" type="time"/></div>
+        <div><label>To *</label><input id="rb_to" type="time"/></div>
+        <div><label>Purpose *</label><select id="rb_purpose">
+          ${ROOM_PURPOSES.map(p => `<option>${p}</option>`).join('')}</select></div>
+        <div><label>Team leader name *</label><input id="rb_leader" placeholder="Team leader full name"/></div>
+      </div>
+      <div style="height:10px"></div>
+      <label>Notes</label><textarea id="rb_notes" placeholder="Attendees, equipment needed…"></textarea>
+      <div id="rb_avail" class="meta" style="margin:10px 0"></div>
+      <button id="rb_submit" class="btn">Request room</button>
+      <span id="rb_msg" class="meta" style="margin-left:12px"></span>
+      <p class="muted" style="margin-top:10px">Your request goes to George for approval. You will get an SMS when it is approved or rejected.</p>
+    </div>
+    <div class="card">
+      <h2>My room requests</h2>
+      <div id="rb_mine" class="table-wrap">Loading…</div>
+    </div>`;
+
+  ['rb_room', 'rb_date'].forEach(id => $(id).onchange = showRoomAvailability);
+  $('rb_submit').onclick = submitRoomBooking;
+  window.__refresh = () => { loadMyRoomBookings(); showRoomAvailability(); };
+  loadMyRoomBookings();
+}
+
+async function showRoomAvailability() {
+  const box = $('rb_avail'); if (!box) return;
+  const room = $('rb_room').value, date = $('rb_date').value;
+  if (!room || !date) { box.textContent = ''; return; }
+  const from = new Date(date + 'T00:00'), to = new Date(date + 'T23:59:59');
+  const { data } = await SB.rpc('room_busy', { p_from: from.toISOString(), p_to: to.toISOString() });
+  const mine = (data || []).filter(b => b.room_id === room).sort((a, b) => a.start_at.localeCompare(b.start_at));
+  box.innerHTML = mine.length
+    ? `⛔ Already booked that day: ${mine.map(b => `<b>${fmtTime(b.start_at)}–${fmtTime(b.end_at)}</b>`).join(', ')}`
+    : '✅ No approved bookings for this room on that day.';
+}
+
+async function submitRoomBooking() {
+  const msg = $('rb_msg');
+  const err = (t) => { msg.style.color = 'var(--danger)'; msg.textContent = t; };
+  const room_id = $('rb_room').value, date = $('rb_date').value;
+  const from = $('rb_from').value, to = $('rb_to').value;
+  const team_leader = $('rb_leader').value.trim();
+  if (!room_id || !date || !from || !to || !team_leader) return err('Room, date, time and team leader are required.');
+  const start = new Date(`${date}T${from}`), end = new Date(`${date}T${to}`);
+  if (end <= start) return err('End time must be after the start time.');
+  if (start < new Date(Date.now() - 5 * 60000)) return err('Start time is in the past.');
+
+  msg.style.color = 'var(--muted)'; msg.textContent = 'Checking availability…';
+  const { data: busy } = await SB.rpc('room_busy', { p_from: start.toISOString(), p_to: end.toISOString() });
+  if ((busy || []).some(b => b.room_id === room_id)) { showRoomAvailability(); return err('⛔ This room is already booked for that time. Pick another time or room.'); }
+
+  $('rb_submit').disabled = true; msg.textContent = 'Sending…';
+  const { error } = await SB.from('room_bookings').insert({
+    room_id, booked_by: me.id, requester_name: profile.full_name || null, team_leader,
+    purpose: $('rb_purpose').value, notes: $('rb_notes').value.trim() || null,
+    start_at: start.toISOString(), end_at: end.toISOString()
+  });
+  $('rb_submit').disabled = false;
+  if (error) return err(error.message);
+  msg.style.color = 'var(--ok)'; msg.textContent = '✓ Request sent to George for approval.';
+  ['rb_leader', 'rb_notes', 'rb_from', 'rb_to'].forEach(id => $(id).value = '');
+  loadMyRoomBookings();
+}
+
+async function loadMyRoomBookings() {
+  const box = $('rb_mine'); if (!box) return;
+  const { data, error } = await SB.from('room_bookings').select('*').eq('booked_by', me.id).order('start_at', { ascending: false });
+  if (error) { box.innerHTML = `<p class="err">${esc(error.message)}</p>`; return; }
+  if (!data.length) { box.innerHTML = '<p class="muted">No requests yet.</p>'; return; }
+  box.innerHTML = `<table><thead><tr><th>Ref</th><th>Room</th><th>When</th><th>Team leader</th><th>Status</th><th></th></tr></thead><tbody>${
+    data.map(b => `<tr>
+      <td>${esc(b.reference_code)}</td><td>${esc(roomName(b.room_id))}</td>
+      <td>${fmtRange(b.start_at, b.end_at)}<div class="meta">${esc(b.purpose)}</div></td>
+      <td>${esc(b.team_leader)}</td>
+      <td>${statusBadge(b.status)}${b.reject_reason ? `<div class="meta">Reason: ${esc(b.reject_reason)}</div>` : ''}</td>
+      <td>${['pending', 'approved'].includes(b.status) && new Date(b.start_at) > new Date()
+        ? `<button class="btn ghost sm" data-rbcancel="${b.id}">Cancel</button>` : ''}</td></tr>`).join('')
+  }</tbody></table>`;
+  box.querySelectorAll('[data-rbcancel]').forEach(btn => btn.onclick = async () => {
+    if (!confirm('Cancel this room request?')) return;
+    const { error } = await SB.from('room_bookings').update({ status: 'cancelled' }).eq('id', btn.dataset.rbcancel);
+    if (error) alert(error.message);
+    loadMyRoomBookings();
+  });
+}
+
+// ---------- Back end: George / admins / managers ----------
+async function renderRoomAdmin() {
+  const main = $('appMain');
+  try { await loadRooms(); }
+  catch (e) { main.innerHTML = `<div class="card"><p class="err">Meeting rooms are not set up yet (${esc(e.message)}).</p></div>`; return; }
+  const tab = (k, l) => `<div class="tab ${rbTab === k ? 'active' : ''}" data-rbtab="${k}">${l}</div>`;
+  main.innerHTML = `
+    <div class="tabs" style="margin-bottom:16px">${tab('requests', '📋 Requests')}${tab('calendar', '🗓️ Room calendar')}${tab('stats', '📊 Usage')}</div>
+    <div id="rbBody"></div>`;
+  main.querySelectorAll('[data-rbtab]').forEach(t => t.onclick = () => { rbTab = t.dataset.rbtab; renderRoomAdmin(); });
+  if (rbTab === 'calendar') return renderRoomCalendar();
+  if (rbTab === 'stats') return renderRoomStats();
+  renderRoomRequests();
+}
+
+async function renderRoomRequests() {
+  $('rbBody').innerHTML = `
+    <div class="card">
+      <div id="rbTiles" class="tiles" style="margin-bottom:14px"></div>
+      <div class="tabs" id="rbFilter">${['pending', 'approved', 'rejected', 'cancelled', 'all']
+        .map(s => `<div class="tab ${rbFilter === s ? 'active' : ''}" data-f="${s}">${s[0].toUpperCase() + s.slice(1)}</div>`).join('')}</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">
+        <select id="rbRoomSel" style="max-width:200px"><option value="">All rooms</option>
+          ${roomsCache.map(r => `<option value="${r.id}" ${rbRoom === r.id ? 'selected' : ''}>${esc(r.name)}</option>`).join('')}</select>
+        <input type="date" id="rbDateSel" value="${rbDate}" style="max-width:180px"/>
+        <button id="rbClear" class="btn ghost sm">Clear</button>
+      </div>
+      <div id="rbList" class="table-wrap">Loading…</div>
+    </div>`;
+  document.querySelectorAll('#rbFilter .tab').forEach(t => t.onclick = () => {
+    document.querySelectorAll('#rbFilter .tab').forEach(x => x.classList.remove('active'));
+    t.classList.add('active'); rbFilter = t.dataset.f; loadRoomRequests();
+  });
+  $('rbRoomSel').onchange = (e) => { rbRoom = e.target.value; loadRoomRequests(); };
+  $('rbDateSel').onchange = (e) => { rbDate = e.target.value; loadRoomRequests(); };
+  $('rbClear').onclick = () => { rbRoom = ''; rbDate = ''; $('rbRoomSel').value = ''; $('rbDateSel').value = ''; loadRoomRequests(); };
+  window.__refresh = loadRoomRequests;
+  loadRoomRequests();
+}
+
+async function loadRoomRequests() {
+  const box = $('rbList'); if (!box) return;
+  const { data, error } = await SB.from('room_bookings').select('*').order('start_at', { ascending: true });
+  if (error) { box.innerHTML = `<p class="err">${esc(error.message)}</p>`; return; }
+  const all = data || [];
+  const c = { pending: 0, approved: 0, rejected: 0, cancelled: 0 };
+  all.forEach(b => { if (c[b.status] != null) c[b.status]++; });
+  if ($('rbTiles')) $('rbTiles').innerHTML = `
+    <div class="tile"><div class="n" style="color:var(--warn)">${c.pending}</div><div class="l">Pending</div></div>
+    <div class="tile"><div class="n" style="color:var(--ok)">${c.approved}</div><div class="l">Approved</div></div>
+    <div class="tile"><div class="n" style="color:var(--danger)">${c.rejected}</div><div class="l">Rejected</div></div>
+    <div class="tile"><div class="n">${c.cancelled}</div><div class="l">Cancelled</div></div>`;
+  let rows = all;
+  if (rbFilter !== 'all') rows = rows.filter(b => b.status === rbFilter);
+  if (rbRoom) rows = rows.filter(b => b.room_id === rbRoom);
+  if (rbDate) rows = rows.filter(b => dayKey(b.start_at) === rbDate);
+  if (!rows.length) { box.innerHTML = '<p class="muted">No requests for this view.</p>'; return; }
+  box.innerHTML = `<table><thead><tr><th>Ref</th><th>Room</th><th>When</th><th>Team leader</th><th>Requested by</th><th>Purpose</th><th>Status</th><th></th></tr></thead><tbody>${
+    rows.map(b => `<tr>
+      <td>${esc(b.reference_code)}</td><td>${esc(roomName(b.room_id))}</td>
+      <td>${fmtRange(b.start_at, b.end_at)}</td>
+      <td>${esc(b.team_leader)}</td><td>${esc(b.requester_name || '—')}</td>
+      <td>${esc(b.purpose)}${b.notes ? `<div class="meta">📝 ${esc(b.notes)}</div>` : ''}</td>
+      <td>${statusBadge(b.status)}${b.reject_reason ? `<div class="meta">Reason: ${esc(b.reject_reason)}</div>` : ''}</td>
+      <td class="row-actions">${isApprover ? `
+        ${b.status === 'pending' ? `<button class="btn ok sm" data-rbok="${b.id}">Approve</button><button class="btn danger sm" data-rbno="${b.id}">Reject</button>` : ''}
+        ${['pending', 'approved'].includes(b.status) ? `<button class="btn ghost sm" data-rbx="${b.id}">Cancel</button>` : ''}` : ''}</td>
+    </tr>`).join('')
+  }</tbody></table>`;
+  box.querySelectorAll('[data-rbok]').forEach(b => b.onclick = async () => {
+    const { error } = await SB.from('room_bookings').update({ status: 'approved' }).eq('id', b.dataset.rbok);
+    if (error) alert(error.message.includes('no_room_double_booking') ? '⛔ Another approved booking already uses this room at that time.' : error.message);
+    loadRoomRequests();
+  });
+  box.querySelectorAll('[data-rbno]').forEach(b => b.onclick = async () => {
+    const reason = (prompt('Reason for rejecting (required):') || '').trim();
+    if (!reason) return alert('A reason is required to reject.');
+    const { error } = await SB.from('room_bookings').update({ status: 'rejected', reject_reason: reason }).eq('id', b.dataset.rbno);
+    if (error) alert(error.message);
+    loadRoomRequests();
+  });
+  box.querySelectorAll('[data-rbx]').forEach(b => b.onclick = async () => {
+    if (!confirm('Cancel this booking?')) return;
+    const { error } = await SB.from('room_bookings').update({ status: 'cancelled' }).eq('id', b.dataset.rbx);
+    if (error) alert(error.message);
+    loadRoomRequests();
+  });
+}
+
+async function renderRoomCalendar() {
+  if (!calDate) calDate = todayKey();
+  $('rbBody').innerHTML = `
+    <div class="card">
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:12px">
+        <h2 style="margin:0">🗓️ Room calendar</h2>
+        <button id="calPrev" class="btn ghost sm">‹</button>
+        <input type="date" id="calDate" value="${calDate}" style="max-width:170px"/>
+        <button id="calNext" class="btn ghost sm">›</button>
+        <button id="calToday" class="btn secondary sm">Today</button>
+      </div>
+      <div class="meta" style="margin-bottom:8px"><span class="dotkey" style="background:var(--ok)"></span> approved
+        <span class="dotkey" style="background:var(--warn);margin-left:12px"></span> pending</div>
+      <div id="calGrid" class="table-wrap">Loading…</div>
+    </div>`;
+  const go = (d) => { calDate = d; renderRoomCalendar(); };
+  const shift = (n) => go(dayKey(new Date(new Date(calDate + 'T12:00').getTime() + n * 86400000)));
+  $('calDate').onchange = (e) => e.target.value && go(e.target.value);
+  $('calPrev').onclick = () => shift(-1); $('calNext').onclick = () => shift(1);
+  $('calToday').onclick = () => go(todayKey());
+  window.__refresh = renderRoomCalendar;
+
+  const dayStart = new Date(calDate + 'T00:00'), dayEnd = new Date(calDate + 'T23:59:59');
+  const { data, error } = await SB.from('room_bookings').select('*')
+    .in('status', ['approved', 'pending']).lt('start_at', dayEnd.toISOString()).gt('end_at', dayStart.toISOString());
+  if (error) { $('calGrid').innerHTML = `<p class="err">${esc(error.message)}</p>`; return; }
+  const total = 24 * 3600000, pct = (t) => Math.max(0, Math.min(100, (new Date(t) - dayStart) / total * 100));
+  $('calGrid').innerHTML = `<div class="cal">
+    <div class="cal-row cal-head"><div class="cal-name"></div><div class="cal-track">
+      ${Array.from({ length: 24 }, (_, h) => `<div class="cal-hour">${String(h).padStart(2, '0')}</div>`).join('')}</div></div>
+    ${roomsCache.map(r => `<div class="cal-row"><div class="cal-name">${esc(r.name)}</div><div class="cal-track">
+      ${Array.from({ length: 24 }, () => '<div class="cal-cell"></div>').join('')}
+      ${(data || []).filter(b => b.room_id === r.id).map(b => {
+        const l = pct(b.start_at), w = Math.max(1.5, pct(b.end_at) - l);
+        return `<div class="cal-bar ${b.status}" style="left:${l}%;width:${w}%" title="${esc(fmtTime(b.start_at))}–${esc(fmtTime(b.end_at))} · ${esc(b.team_leader)} · ${esc(b.purpose)} (${b.status})">${esc(fmtTime(b.start_at))} ${esc(b.team_leader)}</div>`;
+      }).join('')}</div></div>`).join('')}
+  </div>`;
+}
+
+async function renderRoomStats() {
+  $('rbBody').innerHTML = `<div class="card"><h2>📊 Usage</h2><div id="rbStats">Loading…</div></div>`;
+  window.__refresh = renderRoomStats;
+  const { data, error } = await SB.from('room_bookings').select('*');
+  if (error) { $('rbStats').innerHTML = `<p class="err">${esc(error.message)}</p>`; return; }
+  const rows = data || [];
+  const hrs = (b) => (new Date(b.end_at) - new Date(b.start_at)) / 3600000;
+  const perRoom = roomsCache.map(r => {
+    const m = rows.filter(b => b.room_id === r.id);
+    const ap = m.filter(b => b.status === 'approved');
+    return { name: r.name, total: m.length, approved: ap.length, pending: m.filter(b => b.status === 'pending').length,
+      rejected: m.filter(b => b.status === 'rejected').length, hours: ap.reduce((s, b) => s + hrs(b), 0) };
+  });
+  const leaders = {};
+  rows.filter(b => b.status === 'approved').forEach(b => {
+    const k = b.team_leader.trim(); (leaders[k] = leaders[k] || { n: 0, h: 0 }); leaders[k].n++; leaders[k].h += hrs(b);
+  });
+  const top = Object.entries(leaders).sort((a, b) => b[1].n - a[1].n).slice(0, 10);
+  $('rbStats').innerHTML = `
+    <h3>Per room</h3>
+    <div class="table-wrap"><table><thead><tr><th>Room</th><th>Requests</th><th>Approved</th><th>Pending</th><th>Rejected</th><th>Approved hours</th></tr></thead><tbody>${
+      perRoom.map(r => `<tr><td>${esc(r.name)}</td><td>${r.total}</td><td>${r.approved}</td><td>${r.pending}</td><td>${r.rejected}</td><td>${r.hours.toFixed(1)}</td></tr>`).join('')}</tbody></table></div>
+    <h3>Top team leaders (approved bookings)</h3>
+    ${top.length ? `<div class="table-wrap"><table><thead><tr><th>Team leader</th><th>Bookings</th><th>Hours</th></tr></thead><tbody>${
+      top.map(([n, v]) => `<tr><td>${esc(n)}</td><td>${v.n}</td><td>${v.h.toFixed(1)}</td></tr>`).join('')}</tbody></table></div>` : '<p class="muted">No approved bookings yet.</p>'}`;
 }

@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
-  <title>Amlak One — Driver Reservations</title>
+  <title>Amlak One — Reservations</title>
   <style>
     :root{
       --bg:#0f1720; --surface:#172230; --surface-2:#1f2e40; --line:#2b3b50;
@@ -60,6 +60,7 @@
     .s-pending{background:#3a2f06;color:#f0c43a}
     .s-accepted{background:#08361f;color:#3fe08c}
     .s-rejected{background:#3a1414;color:#ff8a8a}
+    .s-approved{background:#08361f;color:#3fe08c}
     .s-completed{background:#0d2740;color:#6fb6ff}
     .s-cancelled{background:#2a2f37;color:#9fb0c3}
     .s-no_show{background:#33240a;color:#e0a106}
@@ -90,6 +91,19 @@
     #qrcode{display:flex;justify-content:center;margin:14px 0;background:#fff;padding:14px;border-radius:10px}
     .meta{font-size:13px;color:var(--muted)}
     .res-loc{font-size:13px;color:var(--muted)}
+    .choice{cursor:pointer;text-align:center;transition:transform .12s,border-color .12s}
+    .choice:hover{transform:translateY(-2px);border-color:var(--brand)}
+    .choice .big{font-size:42px;margin-bottom:6px}
+    .dotkey{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px}
+    .cal{min-width:980px}
+    .cal-row{display:flex;align-items:stretch;border-bottom:1px solid var(--line)}
+    .cal-name{width:90px;flex:none;padding:10px 6px;font-size:13px;font-weight:600}
+    .cal-track{position:relative;flex:1;display:flex;min-height:44px}
+    .cal-cell,.cal-hour{flex:1;border-left:1px solid var(--line)}
+    .cal-hour{font-size:11px;color:var(--muted);padding:6px 2px}
+    .cal-bar{position:absolute;top:5px;bottom:5px;border-radius:6px;padding:2px 6px;font-size:11px;overflow:hidden;white-space:nowrap;color:#04231a;font-weight:600}
+    .cal-bar.approved{background:var(--ok)}
+    .cal-bar.pending{background:var(--warn)}
     .deeplink-banner{background:var(--info);color:#fff;padding:10px 14px;border-radius:10px;margin-bottom:14px;font-size:13px}
   </style>
 </head>
@@ -155,6 +169,7 @@
     <header class="appbar">
       <div class="brand"><span class="dot"></span> Amlak One</div>
       <div class="who">
+        <button id="btnHome" class="btn secondary sm hidden">🏠 Home</button>
         <span id="whoName"></span>
         <span id="whoRole" class="role-pill"></span>
         <button id="btnLogout" class="btn ghost sm">Logout</button>
