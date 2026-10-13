@@ -1238,9 +1238,9 @@ async function renderRoomCalendar() {
         return `<div class="cal-bar ${b.status}" data-bid="${b.id}" style="left:${l}%;width:${w}%" title="${esc(fmtTime(b.start_at))}–${esc(fmtTime(b.end_at))} · ${esc(b.team_leader)} · ${esc(b.purpose)} (${b.status})">${esc(fmtTime(b.start_at))} ${esc(b.team_leader)}</div>`;
       }).join('')}</div></div>`).join('')}
   </div>`;
-}
   const byId = Object.fromEntries((data || []).map(b => [b.id, b]));
   $('calGrid').querySelectorAll('[data-bid]').forEach(el => el.onclick = () => showRoomDetail(byId[el.dataset.bid]));
+}
 
 // Details window for one booking (opened from the calendar). Approvers can act here.
 function showRoomDetail(b) {
