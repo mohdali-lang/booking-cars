@@ -1235,9 +1235,50 @@ async function renderRoomCalendar() {
       ${Array.from({ length: 24 }, () => '<div class="cal-cell"></div>').join('')}
       ${(data || []).filter(b => b.room_id === r.id).map(b => {
         const l = pct(b.start_at), w = Math.max(1.5, pct(b.end_at) - l);
-        return `<div class="cal-bar ${b.status}" style="left:${l}%;width:${w}%" title="${esc(fmtTime(b.start_at))}–${esc(fmtTime(b.end_at))} · ${esc(b.team_leader)} · ${esc(b.purpose)} (${b.status})">${esc(fmtTime(b.start_at))} ${esc(b.team_leader)}</div>`;
+        return `<div class="cal-bar ${b.status}" data-bid="${b.id}" style="left:${l}%;width:${w}%" title="${esc(fmtTime(b.start_at))}–${esc(fmtTime(b.end_at))} · ${esc(b.team_leader)} · ${esc(b.purpose)} (${b.status})">${esc(fmtTime(b.start_at))} ${esc(b.team_leader)}</div>`;
       }).join('')}</div></div>`).join('')}
   </div>`;
+}
+  const byId = Object.fromEntries((data || []).map(b => [b.id, b]));
+  $('calGrid').querySelectorAll('[data-bid]').forEach(el => el.onclick = () => showRoomDetail(byId[el.dataset.bid]));
+
+// Details window for one booking (opened from the calendar). Approvers can act here.
+function showRoomDetail(b) {
+  if (!b) return;
+  const row = (l, v) => `<div style="display:flex;gap:10px;padding:6px 0;border-bottom:1px solid var(--line)"><div class="meta" style="width:110px;flex:none">${l}</div><div>${v}</div></div>`;
+  const bg = el(`<div class="modal-bg"><div class="modal" style="max-width:460px;text-align:left">
+    <h2 style="margin:0 0 10px">${esc(roomName(b.room_id))} ${statusBadge(b.status)}</h2>
+    ${row('When', fmtRange(b.start_at, b.end_at))}
+    ${row('Team leader', esc(b.team_leader))}
+    ${row('Requested by', esc(b.requester_name || '—'))}
+    ${row('Purpose', esc(b.purpose))}
+    ${b.notes ? row('Notes', esc(b.notes)) : ''}
+    ${b.reject_reason ? row('Reason', esc(b.reject_reason)) : ''}
+    ${row('Reference', esc(b.reference_code))}
+    <div class="row-actions" style="margin-top:14px">
+      ${isApprover && b.status === 'pending' ? `<button class="btn ok sm" id="mdOk">Approve</button><button class="btn danger sm" id="mdNo">Reject</button>` : ''}
+      ${isApprover && ['pending', 'approved'].includes(b.status) ? `<button class="btn danger sm" id="mdX">Cancel booking</button>` : ''}
+      <button class="btn ghost sm" id="mdClose">Close</button>
+    </div></div></div>`);
+  const close = () => { $('modalMount').innerHTML = ''; };
+  const act = async (patch, errHint) => {
+    const { error } = await SB.from('room_bookings').update(patch).eq('id', b.id);
+    if (error) return alert(error.message.includes('no_room_double_booking') ? errHint : error.message);
+    close(); if (typeof window.__refresh === 'function') window.__refresh();
+  };
+  $('modalMount').innerHTML = ''; $('modalMount').appendChild(bg);
+  bg.querySelector('#mdClose').onclick = close;
+  bg.onclick = (e) => { if (e.target === bg) close(); };
+  if (bg.querySelector('#mdOk')) bg.querySelector('#mdOk').onclick = () =>
+    act({ status: 'approved' }, '⛔ Another approved booking already uses this room at that time.');
+  if (bg.querySelector('#mdNo')) bg.querySelector('#mdNo').onclick = () => {
+    const reason = (prompt('Reason for rejecting (required):') || '').trim();
+    if (!reason) return alert('A reason is required to reject.');
+    act({ status: 'rejected', reject_reason: reason });
+  };
+  if (bg.querySelector('#mdX')) bg.querySelector('#mdX').onclick = () => {
+    if (confirm('Cancel this booking? The requester will get an SMS.')) act({ status: 'cancelled' });
+  };
 }
 
 async function renderRoomStats() {
