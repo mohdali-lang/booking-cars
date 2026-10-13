@@ -95,6 +95,19 @@
     .choice:hover{transform:translateY(-2px);border-color:var(--brand)}
     .choice .big{font-size:42px;margin-bottom:6px}
     .dotkey{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:4px}
+    .dp{position:absolute;z-index:40;top:100%;left:0;margin-top:6px;width:290px;background:var(--surface);
+      border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:12px}
+    .dp-head{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;font-size:14px}
+    .dp-nav{background:none;border:none;color:var(--text);font-size:20px;cursor:pointer;padding:0 8px}
+    .dp-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
+    .dp-dow{font-size:11px;color:var(--muted);padding:4px 0}
+    .dp-d{padding:8px 0;font-size:13px;border-radius:8px}
+    .dp-out,.dp-past{color:#4a5a70}
+    .dp-ok{cursor:pointer}.dp-ok:hover{background:var(--surface-2)}
+    .dp-today{font-weight:800;color:var(--brand-2)}
+    .dp-sel{background:var(--brand);color:#04231a !important;font-weight:700}
+    .dp-foot{display:flex;gap:8px;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+    .dp-btn{background:var(--surface-2);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer;font-size:13px}
     .cal{min-width:980px}
     .cal-row{display:flex;align-items:stretch;border-bottom:1px solid var(--line)}
     .cal-name{width:90px;flex:none;padding:10px 6px;font-size:13px;font-weight:600}

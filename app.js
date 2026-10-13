@@ -942,6 +942,52 @@ function deeplinkBanner() {
 // =============================================================================
 const ROOM_PURPOSES = ['Client meeting', 'Internal meeting', 'Interview', 'Training', 'Other'];
 const fmtRange = (s, e) => `${fmtDate(s)} · ${fmtTime(s)}–${fmtTime(e)}`;
+// Calendar popup under a text field (month arrows, past days greyed, Today / Tomorrow)
+function initDatePicker(input, pop, onPick) {
+  const DOW = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
+  let view = new Date(); view.setDate(1);
+  const fmt = (d) => `${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}/${d.getFullYear()}`;
+  const keyOf = (d) => dayKey(d);
+  const pick = (d) => { input.value = fmt(d); pop.classList.add('hidden'); onPick && onPick(); };
+  function draw() {
+    const y = view.getFullYear(), m = view.getMonth();
+    const first = new Date(y, m, 1).getDay(), days = new Date(y, m + 1, 0).getDate();
+    const prevDays = new Date(y, m, 0).getDate();
+    const sel = typedDate(input.value), today = todayKey();
+    const cells = [];
+    for (let i = first - 1; i >= 0; i--) cells.push(`<div class="dp-d dp-out">${prevDays - i}</div>`);
+    for (let d = 1; d <= days; d++) {
+      const k = keyOf(new Date(y, m, d)), past = k < today;
+      cells.push(`<div class="dp-d ${past ? 'dp-past' : 'dp-ok'} ${k === today ? 'dp-today' : ''} ${k === sel ? 'dp-sel' : ''}" ${past ? '' : `data-d="${d}"`}>${d}</div>`);
+    }
+    for (let n = 1; cells.length % 7; n++) cells.push(`<div class="dp-d dp-out">${n}</div>`);
+    pop.innerHTML = `
+      <div class="dp-head"><b>${view.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' })}</b>
+        <span><button type="button" class="dp-nav" data-nav="-1">‹</button><button type="button" class="dp-nav" data-nav="1">›</button></span></div>
+      <div class="dp-grid">${DOW.map(x => `<div class="dp-dow">${x}</div>`).join('')}${cells.join('')}</div>
+      <div class="dp-foot"><button type="button" class="dp-btn" data-q="0">Today</button><button type="button" class="dp-btn" data-q="1">Tomorrow</button></div>`;
+    pop.querySelectorAll('[data-nav]').forEach(b => b.onclick = (e) => { e.stopPropagation(); view = new Date(y, m + Number(b.dataset.nav), 1); draw(); });
+    pop.querySelectorAll('[data-d]').forEach(c => c.onclick = () => pick(new Date(y, m, Number(c.dataset.d))));
+    pop.querySelectorAll('[data-q]').forEach(b => b.onclick = () => pick(new Date(Date.now() + Number(b.dataset.q) * 86400000)));
+  }
+  input.onclick = (e) => {
+    e.stopPropagation();
+    const s = typedDate(input.value);
+    view = s ? new Date(s + 'T12:00') : new Date(); view.setDate(1);
+    draw(); pop.classList.toggle('hidden');
+  };
+  pop.onclick = (e) => e.stopPropagation();
+  document.addEventListener('click', () => pop.classList.add('hidden'));
+}
+
+// "15/10/2026" -> "2026-10-15"; returns '' if it is not a real date
+function typedDate(v) {
+  const m = /^(\d{2})\/(\d{2})\/(\d{4})$/.exec((v || '').trim());
+  if (!m) return '';
+  const [, d, mo, y] = m, dt = new Date(+y, +mo - 1, +d);
+  if (dt.getFullYear() !== +y || dt.getMonth() !== +mo - 1 || dt.getDate() !== +d) return '';
+  return `${y}-${mo}-${d}`;
+}
 const hh = (h) => String(h).padStart(2, '0');
 const hourOptions = (from, to) => Array.from({ length: Math.max(0, to - from + 1) }, (_, i) =>
   `<option value="${hh(from + i)}:00">${hh(from + i)}:00</option>`).join('');
@@ -970,7 +1016,7 @@ async function renderRoomBooking() {
           ${[9, 12].map(f => `<optgroup label="${f}th floor">${roomsCache.filter(r => r.floor === f)
             .map(r => `<option value="${r.id}">${esc(r.name)}</option>`).join('')}</optgroup>`).join('')}
         </select></div>
-        <div><label>Date *</label><input id="rb_date" type="date" min="${todayKey()}" max="${dayKey(new Date(Date.now() + 365 * 86400000))}"/></div>
+        <div style="position:relative"><label>Date *</label><input id="rb_date" type="text" readonly placeholder="Select date" autocomplete="off" style="cursor:pointer"/><div id="dpPop" class="dp hidden"></div></div>
         <div><label>From *</label><select id="rb_from"><option value="">Select…</option>${hourOptions(7, 21)}</select></div>
         <div><label>To * <span class="meta">(2 hours by default)</span></label><select id="rb_to"><option value="">Select…</option></select></div>
         <div><label>Purpose *</label><select id="rb_purpose">
@@ -995,7 +1041,8 @@ async function renderRoomBooking() {
     $('rb_to').innerHTML = '<option value="">Select…</option>' + (h == null ? '' : hourOptions(h + 1, 22));
     if (h != null) $('rb_to').value = hh(Math.min(h + 2, 22)) + ':00';
   };
-  ['rb_room', 'rb_date'].forEach(id => $(id).onchange = showRoomAvailability);
+  initDatePicker($('rb_date'), $('dpPop'), showRoomAvailability);
+  $('rb_room').onchange = showRoomAvailability;
   $('rb_submit').onclick = submitRoomBooking;
   window.__refresh = () => { loadMyRoomBookings(); showRoomAvailability(); };
   loadMyRoomBookings();
@@ -1003,7 +1050,7 @@ async function renderRoomBooking() {
 
 async function showRoomAvailability() {
   const box = $('rb_avail'); if (!box) return;
-  const room = $('rb_room').value, date = $('rb_date').value;
+  const room = $('rb_room').value, date = typedDate($('rb_date').value);
   if (!room || !date) { box.textContent = ''; return; }
   const from = new Date(date + 'T00:00'), to = new Date(date + 'T23:59:59');
   const { data } = await SB.rpc('room_busy', { p_from: from.toISOString(), p_to: to.toISOString() });
@@ -1016,11 +1063,11 @@ async function showRoomAvailability() {
 async function submitRoomBooking() {
   const msg = $('rb_msg');
   const err = (t) => { msg.style.color = 'var(--danger)'; msg.textContent = t; };
-  const room_id = $('rb_room').value, date = $('rb_date').value;
+  const room_id = $('rb_room').value, date = typedDate($('rb_date').value);
   const from = $('rb_from').value, to = $('rb_to').value;
   const team_leader = $('rb_leader').value.trim();
   if (!room_id || !date || !from || !to || !team_leader) return err('Room, date, time and team leader are required.');
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < todayKey()) return err('Pick a valid date from the calendar (today or later).');
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || date < todayKey()) return err('Type a valid date as DD/MM/YYYY (today or later).');
   const start = new Date(`${date}T${from}`), end = new Date(`${date}T${to}`);
   if (end <= start) return err('End time must be after the start time.');
   if (start < new Date(Date.now() - 5 * 60000)) return err('Start time is in the past.');
