@@ -29,6 +29,15 @@ const dayKey = (iso) => { const d = new Date(iso); return `${d.getFullYear()}-${
 const todayKey = () => dayKey(new Date());
 const toISO = (localValue) => localValue ? new Date(localValue).toISOString() : null;
 
+// "10 Jul, 17:20 → 19:20". No return time entered -> estimated end (default trip length) shown with "~".
+function tripWindow(r) {
+  if (!r.pickup_at) return '—';
+  const est = !r.return_at;
+  const end = new Date(est ? new Date(r.pickup_at).getTime() + (CONFIG.DEFAULT_TRIP_HOURS || 2) * 3600000 : r.return_at);
+  const endTxt = dayKey(end) === dayKey(r.pickup_at) ? fmtTime(end) : fmtDateTime(end);
+  return `${fmtDateTime(r.pickup_at)} → ${est ? '~' : ''}${endTxt}`;
+}
+
 function dayLabel(dkey) {
   const t = todayKey();
   const tmr = dayKey(new Date(Date.now() + 86400000));
@@ -90,7 +99,7 @@ function buildVisitMap(divId, rows) {
     }).addTo(map);
     mk.bindPopup(
       `<b>${esc(r.client_name)}</b><br>${esc(r.purpose.replace('_',' '))} · ${esc(r.status)}<br>`
-      + `🕑 ${fmtDateTime(r.pickup_at)}<br>`
+      + `🕑 ${tripWindow(r)}<br>`
       + (r.driver?.full_name ? `🚗 ${esc(r.driver.full_name)}<br>` : '')
       + (r.location_text ? `📍 ${esc(r.location_text)}<br>` : '')
       + (r.location_url ? `<a href="${esc(r.location_url)}" target="_blank">Open in Maps</a>` : '')
@@ -499,7 +508,7 @@ function driverCard(r) {
         <div class="meta">${esc(r.purpose.replace('_',' '))} · ${esc(r.reference_code)}</div>
         <div class="meta">👤 Requested by ${esc(r.agent_name || 'Sales')}</div>
         <div class="res-loc">📍 ${esc(r.location_text || '—')} ${r.location_url ? `· <a href="${esc(r.location_url)}" target="_blank">map</a>` : ''}</div>
-        <div class="meta">🕑 ${fmtDateTime(r.pickup_at)} → ${fmtDateTime(r.return_at)}</div>
+        <div class="meta">🕑 ${tripWindow(r)}</div>
         ${r.client_phone ? `<div class="meta">📞 <a href="tel:${esc(r.client_phone)}">${esc(r.client_phone)}</a></div>` : ''}
         ${r.notes ? `<div class="meta">📝 From sales: ${esc(r.notes)}</div>` : ''}
         ${r.reject_reason ? `<div class="meta">Reason: ${esc(r.reject_reason)}</div>` : ''}
@@ -894,7 +903,7 @@ function reservationTable(rows, opts = {}) {
       <th>Ref</th><th>Client</th><th>Purpose</th>
       ${opts.showDriver ? '<th>Driver</th>' : ''}
       ${opts.showCreator ? '<th>By</th>' : ''}
-      <th>Pickup</th><th>Status</th>${opts.manager ? '<th></th>' : ''}
+      <th>Pickup → Return</th><th>Status</th>${opts.manager ? '<th></th>' : ''}
     </tr></thead><tbody>${
     rows.map(r => `<tr>
       <td>${esc(r.reference_code)}</td>
@@ -902,7 +911,7 @@ function reservationTable(rows, opts = {}) {
       <td>${esc(r.purpose.replace('_',' '))}</td>
       ${opts.showDriver ? `<td>${esc(r.driver?.full_name || r.driver?.profile?.full_name || '—')}</td>` : ''}
       ${opts.showCreator ? `<td>${esc(r.creator?.full_name || '—')}</td>` : ''}
-      <td>${fmtDateTime(r.pickup_at)}</td>
+      <td>${tripWindow(r)}</td>
       <td>${statusBadge(r.status)}</td>
       ${opts.manager ? `<td class="row-actions">
         ${r.status === 'pending' ? `<button class="btn ok sm" data-maccept="${r.id}">Accept</button><button class="btn danger sm" data-mreject="${r.id}">Reject</button>` : ''}
