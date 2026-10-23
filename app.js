@@ -7,7 +7,6 @@ let me = null;          // auth user
 let profile = null;     // public.profiles row
 let myDriverId = null;  // drivers.id if I am a driver
 let realtimeChan = null;
-let pendingPhone = '';  // E.164 phone awaiting OTP verification
 let mgrFilter = 'all';  // manager status filter
 let mgrDate = '';       // manager day filter (YYYY-MM-DD or '')
 let drvFilter = 'pending';
@@ -139,56 +138,80 @@ async function boot() {
 const ALLOWED_EMAIL_DOMAIN = '@amlakone.ae';
 
 function wireLogin() {
-  // If opened from the Sales QR, show the sign-up banner and make name required.
-  const params = new URLSearchParams(location.search);
-  if (params.get('signup') === 'sales') {
+  let registering = false;
+
+  const showStaff = () => {
+    $('segStaff').classList.add('active'); $('segDriver').classList.remove('active');
+    $('staffBox').classList.remove('hidden'); $('driverBox').classList.add('hidden'); setMsg('');
+  };
+  const showDriver = () => {
+    $('segDriver').classList.add('active'); $('segStaff').classList.remove('active');
+    $('driverBox').classList.remove('hidden'); $('staffBox').classList.add('hidden'); setMsg('');
+  };
+  const setRegisterMode = (on) => {
+    registering = on;
+    $('regNameWrap').classList.toggle('hidden', !on);
+    $('pwHint').classList.toggle('hidden', !on);
+    $('loginPassword').autocomplete = on ? 'new-password' : 'current-password';
+    $('btnEmailLogin').textContent = on ? 'Create account' : 'Sign in';
+    $('btnToggleReg').textContent = on ? 'Already registered? Sign in' : 'First time? Create your account';
+    $('loginTitle').textContent = on ? 'Create your account' : 'Reservations';
+    setMsg('');
+  };
+
+  $('segStaff').onclick = showStaff;
+  $('segDriver').onclick = showDriver;
+  $('btnToggleReg').onclick = () => setRegisterMode(!registering);
+
+  // Opened from the Sales QR (?signup=sales): go straight to "create account"
+  if (new URLSearchParams(location.search).get('signup') === 'sales') {
     $('salesBanner').classList.remove('hidden');
-    $('loginTitle').textContent = 'Reserve a Driver';
-    $('loginSubtitle').textContent = 'Amlak One sales — sign up with your company email + phone.';
-    $('nameReq').classList.remove('hidden');
+    setRegisterMode(true);
   }
 
-  $('segEmail').onclick = () => { $('segEmail').classList.add('active'); $('segPhone').classList.remove('active'); $('emailBox').classList.remove('hidden'); $('phoneBox').classList.add('hidden'); };
-  $('segPhone').onclick = () => { $('segPhone').classList.add('active'); $('segEmail').classList.remove('active'); $('phoneBox').classList.remove('hidden'); $('emailBox').classList.add('hidden'); };
-
-  $('btnEmailLogin').onclick = async () => {
+  // ---- Staff: email + password ----
+  const submitStaff = async () => {
     setMsg('');
-    const email = $('loginEmail').value.trim();
+    const email = $('loginEmail').value.trim().toLowerCase();
     const password = $('loginPassword').value;
-    if (!email || !password) return setMsg('Enter email and password.', true);
+    if (!email || !password) return setMsg('Enter your email and password.', true);
+    if (!email.endsWith(ALLOWED_EMAIL_DOMAIN)) return setMsg(`Use your company email (ending ${ALLOWED_EMAIL_DOMAIN}).`, true);
     $('btnEmailLogin').disabled = true;
-    const { error } = await SB.auth.signInWithPassword({ email, password });
-    $('btnEmailLogin').disabled = false;
-    if (error) { console.error('signInWithPassword error:', error); setMsg(fmtAuthError(error), true); }
+    try {
+      if (registering) {
+        const full_name = $('regName').value.trim();
+        if (!full_name) return setMsg('Enter your full name.', true);
+        if (password.length < 8) return setMsg('Password must be at least 8 characters.', true);
+        const { data, error } = await SB.auth.signUp({ email, password, options: { data: { full_name } } });
+        if (error) { console.error('signUp error:', error); return setMsg(fmtAuthError(error), true); }
+        if (!data.session) {
+          // Supabase is still asking for e-mail confirmation (setting not switched off yet)
+          return setMsg('Account created, but email confirmation is still turned on. Ask the admin to turn it off, then sign in.', true);
+        }
+        // session present -> onAuthStateChange signs the user in
+      } else {
+        const { error } = await SB.auth.signInWithPassword({ email, password });
+        if (error) { console.error('signInWithPassword error:', error); setMsg(fmtAuthError(error), true); }
+      }
+    } finally { $('btnEmailLogin').disabled = false; }
   };
+  $('btnEmailLogin').onclick = submitStaff;
+  ['loginEmail', 'loginPassword', 'regName'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') submitStaff(); }));
 
-  $('btnSendOtp').onclick = async () => {
+  // ---- Driver: phone + password ----
+  const submitDriver = async () => {
     setMsg('');
-    const rawPhone = $('loginPhone').value.trim();
-    const coEmail = $('loginCoEmail').value.trim().toLowerCase();
-    const full_name = $('loginName').value.trim();
-    if (!validUaePhone(rawPhone)) return setMsg('Enter a UAE mobile, e.g. 0501234567 or 971501234567', true);
-    if (coEmail && !coEmail.endsWith(ALLOWED_EMAIL_DOMAIN))
-      return setMsg(`Company email must end with ${ALLOWED_EMAIL_DOMAIN}`, true);
-    pendingPhone = toE164(rawPhone);
-    $('btnSendOtp').disabled = true;
-    const { error } = await SB.auth.signInWithOtp({
-      phone: pendingPhone,
-      options: { data: { full_name: full_name || undefined, email: coEmail || undefined } }
-    });
-    $('btnSendOtp').disabled = false;
-    if (error) { console.error('signInWithOtp error:', error); return setMsg(fmtAuthError(error), true); }
-    $('phoneStep1').classList.add('hidden');
-    $('phoneStep2').classList.remove('hidden');
-    setMsg('Code sent. Check your SMS.', false);
+    const raw = $('drvPhone').value.trim();
+    const password = $('drvPassword').value;
+    if (!validUaePhone(raw)) return setMsg('Enter your UAE mobile, e.g. 0501234567.', true);
+    if (!password) return setMsg('Enter your password.', true);
+    $('btnDriverLogin').disabled = true;
+    const { error } = await SB.auth.signInWithPassword({ phone: toE164(raw), password });
+    $('btnDriverLogin').disabled = false;
+    if (error) { console.error('driver signIn error:', error); setMsg(fmtAuthError(error), true); }
   };
-  $('btnVerifyOtp').onclick = async () => {
-    setMsg('');
-    const token = $('loginOtp').value.trim();
-    const { error } = await SB.auth.verifyOtp({ phone: pendingPhone, token, type: 'sms' });
-    if (error) { console.error('verifyOtp error:', error); setMsg(fmtAuthError(error), true); }
-  };
-  $('btnOtpBack').onclick = () => { $('phoneStep2').classList.add('hidden'); $('phoneStep1').classList.remove('hidden'); setMsg(''); };
+  $('btnDriverLogin').onclick = submitDriver;
+  ['drvPhone', 'drvPassword'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') submitDriver(); }));
 }
 
 function setMsg(text, isErr) {
@@ -759,9 +782,39 @@ async function addDriver() {
     await SB.from('drivers').update({ profile_id: prof.id }).eq('id', ins.id);
     await SB.from('profiles').update({ role: 'driver', is_active: true }).eq('id', prof.id);
   }
-  msg.style.color = 'var(--ok)'; msg.textContent = '✓ Driver added.';
+  msg.style.color = 'var(--ok)'; msg.textContent = '✓ Driver added. Creating login…';
   ['d_name','d_phone','d_lic'].forEach(id => $(id).value = '');
   loadDrivers();
+  await setDriverPassword(ins.id, full_name);
+  msg.textContent = '✓ Driver added.';
+}
+
+// Create / reset a driver's phone + password login (server-side) and show the password ONCE.
+async function setDriverPassword(driverId, name) {
+  const { data, error } = await SB.functions.invoke('admin-driver-account', { body: { driver_id: driverId } });
+  let problem = data?.error || '';
+  if (error) {
+    try { problem = (await error.context.json()).error || error.message; } catch (_) { problem = error.message; }
+  }
+  if (problem || !data?.password) { alert('Could not create the login: ' + (problem || 'unknown error')); return; }
+  const bg = el(`<div class="modal-bg"><div class="modal">
+    <h2 style="margin-top:0">🔑 Login for ${esc(name || 'driver')}</h2>
+    <p class="meta" style="margin:0 0 8px">Give these to the driver. The password is shown <b>only now</b>.</p>
+    <div class="tile" style="text-align:left;margin-bottom:12px">
+      <div class="l">Phone</div><div style="font-weight:700">${esc(data.phone)}</div>
+      <div class="l" style="margin-top:8px">Password</div>
+      <div id="pwShown" style="font-weight:800;font-size:22px;letter-spacing:1px">${esc(data.password)}</div>
+    </div>
+    <div class="row-actions" style="justify-content:center">
+      <button class="btn secondary" id="pwCopy">Copy</button>
+      <button class="btn" id="pwClose">Done</button>
+    </div></div></div>`);
+  $('modalMount').innerHTML = ''; $('modalMount').appendChild(bg);
+  bg.querySelector('#pwCopy').onclick = async () => {
+    try { await navigator.clipboard.writeText(`Phone: ${data.phone}\nPassword: ${data.password}`); bg.querySelector('#pwCopy').textContent = 'Copied ✓'; }
+    catch (_) { bg.querySelector('#pwCopy').textContent = 'Select & copy manually'; }
+  };
+  bg.querySelector('#pwClose').onclick = () => { $('modalMount').innerHTML = ''; };
 }
 
 async function loadDrivers() {
@@ -773,8 +826,12 @@ async function loadDrivers() {
     data.map(d => `<tr>
       <td>${esc(d.full_name || '—')}</td><td>${esc(d.phone || '—')}</td><td>${esc(d.license_no || '—')}</td>
       <td>${d.profile_id ? '<span class="badge s-accepted">signed in</span>' : '<span class="badge s-pending">not yet</span>'} ${d.is_available ? '' : '· off'}</td>
-      <td><button class="btn ghost sm" data-deldriver="${d.id}">Remove</button></td></tr>`).join('')
+      <td class="row-actions"><button class="btn secondary sm" data-drvpw="${d.id}" data-name="${esc(d.full_name || '')}">Set password</button>
+        <button class="btn ghost sm" data-deldriver="${d.id}">Remove</button></td></tr>`).join('')
   }</tbody></table>`;
+  box.querySelectorAll('[data-drvpw]').forEach(b => b.onclick = () => {
+    if (confirm('Create a NEW password for this driver? Their old password will stop working.')) setDriverPassword(b.dataset.drvpw, b.dataset.name);
+  });
   box.querySelectorAll('[data-deldriver]').forEach(b => b.onclick = async () => {
     if (!confirm('Remove this driver?')) return;
     await SB.from('drivers').delete().eq('id', b.dataset.deldriver); loadDrivers();
@@ -822,14 +879,36 @@ async function loadUsers() {
   const { data, error } = await SB.from('profiles').select('id, full_name, phone, email, role, is_active').order('full_name');
   if (error) { box.innerHTML = `<p class="err">${esc(error.message)}</p>`; return; }
   const roles = ['sales','driver','sales_manager','operation_manager','admin'];
-  box.innerHTML = `<table><thead><tr><th>Name</th><th>Contact</th><th>Role</th><th>Active</th></tr></thead><tbody>${
+  const isAdmin = profile.role === 'admin';
+  // who is currently a room approver (admins see this and can change it)
+  let apprIds = new Set(), apprPhones = new Set();
+  try {
+    const { data: ap } = await SB.from('room_approvers').select('profile_id, phone');
+    (ap || []).forEach(a => { if (a.profile_id) apprIds.add(a.profile_id); apprPhones.add((a.phone || '').replace(/\D/g, '')); });
+  } catch (_) { /* patch_12/14 not run yet */ }
+  const isAppr = (u) => apprIds.has(u.id) || (u.phone && apprPhones.has(u.phone.replace(/\D/g, '')));
+  box.innerHTML = `<table><thead><tr><th>Name</th><th>Contact</th><th>Role</th><th>Active</th>${isAdmin ? '<th>Room approver</th>' : ''}</tr></thead><tbody>${
     data.map(u => `<tr>
       <td>${esc(u.full_name || '—')}</td>
       <td class="meta">${esc(u.phone || u.email || '—')}</td>
       <td><select data-role="${u.id}">${roles.map(r => `<option value="${r}" ${r===u.role?'selected':''}>${r.replace('_',' ')}</option>`).join('')}</select></td>
       <td><button class="btn ${u.is_active?'ok':'ghost'} sm" data-active="${u.id}" data-val="${u.is_active}">${u.is_active?'Active':'Inactive'}</button></td>
+      ${isAdmin ? `<td>${u.role === 'admin' ? '<span class="meta">always (admin)</span>'
+        : `<button class="btn ${isAppr(u)?'ok':'ghost'} sm" data-appr="${u.id}" data-on="${isAppr(u)}" data-phone="${esc(u.phone || '')}">${isAppr(u)?'Approver ✓':'Make approver'}</button>`}</td>` : ''}
     </tr>`).join('')
   }</tbody></table>`;
+  box.querySelectorAll('[data-appr]').forEach(b => b.onclick = async () => {
+    const turnOn = b.dataset.on !== 'true';
+    let phone = b.dataset.phone;
+    if (turnOn && !phone) {
+      phone = prompt('Mobile number for this approver (for SMS alerts), e.g. 0501234567:') || '';
+      if (!validUaePhone(phone)) return alert('Enter a valid UAE mobile number.');
+      phone = toE164(phone);
+    }
+    const { error } = await SB.rpc('set_room_approver', { p_profile: b.dataset.appr, p_phone: phone || null, p_on: turnOn });
+    if (error) alert(error.message);
+    loadUsers();
+  });
   box.querySelectorAll('[data-role]').forEach(s => s.onchange = async () => {
     await SB.from('profiles').update({ role: s.value }).eq('id', s.dataset.role); loadUsers();
   });

@@ -127,51 +127,44 @@
   <div id="loginView" class="login-wrap">
     <div class="card login-card">
       <div class="brand" style="margin-bottom:6px"><span class="dot"></span> Amlak One</div>
-      <h2 id="loginTitle">Driver Reservations</h2>
-      <p class="muted" id="loginSubtitle">Sign in with your phone to continue.</p>
+      <h2 id="loginTitle">Reservations</h2>
+      <p class="muted" id="loginSubtitle">Sign in to continue.</p>
 
-      <div id="salesBanner" class="deeplink-banner hidden">📱 Reserve a driver — sign up with your Amlak One email + phone.</div>
+      <div id="salesBanner" class="deeplink-banner hidden">📱 New here? Create your account with your Amlak One email and a password.</div>
 
       <div class="seg">
-        <button id="segPhone" class="active" type="button">Sign in (OTP)</button>
-        <button id="segEmail" type="button">Admin (email)</button>
+        <button id="segStaff" class="active" type="button">Staff (email)</button>
+        <button id="segDriver" type="button">Driver (phone)</button>
       </div>
 
-      <!-- Phone OTP login / self sign-up -->
-      <div id="phoneBox">
-        <div id="phoneStep1">
-          <label>Full name <span id="nameReq" class="hidden">*</span></label>
-          <input id="loginName" type="text" placeholder="Your name" autocomplete="name" />
+      <!-- Staff: email + password (sign in / first-time register) -->
+      <div id="staffBox">
+        <div id="regNameWrap" class="hidden">
+          <label>Full name *</label>
+          <input id="regName" type="text" placeholder="Your full name" autocomplete="name" />
           <div style="height:10px"></div>
-          <label>Company email <span class="muted">(first-time sales — must be @amlakone.ae)</span></label>
-          <input id="loginCoEmail" type="email" placeholder="you@amlakone.ae" autocomplete="email" />
-          <div style="height:10px"></div>
-          <label>Mobile number *</label>
-          <input id="loginPhone" type="tel" placeholder="0501234567 or 971501234567" autocomplete="tel" />
-          <div style="height:14px"></div>
-          <button id="btnSendOtp" class="btn" style="width:100%">Send code</button>
         </div>
-        <div id="phoneStep2" class="hidden">
-          <label>Enter the 6-digit code sent to your phone</label>
-          <input id="loginOtp" type="text" inputmode="numeric" placeholder="123456" />
-          <div style="height:14px"></div>
-          <button id="btnVerifyOtp" class="btn" style="width:100%">Verify & sign in</button>
-          <div style="height:8px"></div>
-          <button id="btnOtpBack" class="btn ghost sm" style="width:100%">Use a different number</button>
-        </div>
-        <p class="muted" style="margin-top:12px">Drivers &amp; managers: just enter your phone (you're already registered).
-        Sales: add your <b>@amlakone.ae</b> email the first time.</p>
-      </div>
-
-      <!-- Email login (admin) -->
-      <div id="emailBox" class="hidden">
-        <label>Email</label>
-        <input id="loginEmail" type="email" placeholder="admin@amlakone.ae" autocomplete="username" />
+        <label>Company email</label>
+        <input id="loginEmail" type="email" placeholder="you@amlakone.ae" autocomplete="username" />
         <div style="height:10px"></div>
-        <label>Password</label>
+        <label>Password <span id="pwHint" class="muted hidden">(at least 8 characters)</span></label>
         <input id="loginPassword" type="password" placeholder="••••••••" autocomplete="current-password" />
         <div style="height:14px"></div>
         <button id="btnEmailLogin" class="btn" style="width:100%">Sign in</button>
+        <div style="height:8px"></div>
+        <button id="btnToggleReg" class="btn ghost sm" style="width:100%" type="button">First time? Create your account</button>
+      </div>
+
+      <!-- Driver: phone + password -->
+      <div id="driverBox" class="hidden">
+        <label>Mobile number</label>
+        <input id="drvPhone" type="tel" placeholder="0501234567" autocomplete="username" />
+        <div style="height:10px"></div>
+        <label>Password</label>
+        <input id="drvPassword" type="password" placeholder="••••••••" autocomplete="current-password" />
+        <div style="height:14px"></div>
+        <button id="btnDriverLogin" class="btn" style="width:100%">Sign in</button>
+        <p class="muted" style="margin-top:12px">Your password is given to you by the operations team.</p>
       </div>
 
       <div id="loginMsg"></div>
