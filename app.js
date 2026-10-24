@@ -61,6 +61,9 @@ function normPhoneDigits(input) {
 const toE164 = (input) => { const d = normPhoneDigits(input); return d ? '+' + d : ''; };
 const validUaePhone = (input) => /^971\d{9}$/.test(normPhoneDigits(input)); // 971 + 9 digits
 
+// "Toyota Camry · A 12345" (either part may be missing)
+const carInfo = (d) => [d?.car_type, d?.plate_no].filter(Boolean).join(' · ');
+
 const statusBadge = (s) => `<span class="badge s-${s}">${s.replace('_',' ')}</span>`;
 
 // ---------- map helpers (Leaflet + OpenStreetMap, no API key) ----------
@@ -99,7 +102,7 @@ function buildVisitMap(divId, rows) {
     mk.bindPopup(
       `<b>${esc(r.client_name)}</b><br>${esc(r.purpose.replace('_',' '))} · ${esc(r.status)}<br>`
       + `🕑 ${tripWindow(r)}<br>`
-      + (r.driver?.full_name ? `🚗 ${esc(r.driver.full_name)}<br>` : '')
+      + (r.driver?.full_name ? `🚗 ${esc(r.driver.full_name)}${carInfo(r.driver) ? ' (' + esc(carInfo(r.driver)) + ')' : ''}<br>` : '')
       + (r.location_text ? `📍 ${esc(r.location_text)}<br>` : '')
       + (r.location_url ? `<a href="${esc(r.location_url)}" target="_blank">Open in Maps</a>` : '')
     );
@@ -445,11 +448,11 @@ async function renderSales() {
 
 async function fillDriverSelect(sel) {
   const { data, error } = await SB.from('drivers')
-    .select('id, is_available, full_name, profile:profiles(full_name)').order('full_name');
+    .select('id, is_available, full_name, plate_no, car_type, profile:profiles(full_name)').order('full_name');
   if (error) { sel.innerHTML = `<option>Error: ${esc(error.message)}</option>`; return; }
   sel.innerHTML = '<option value="">Select a driver…</option>' +
     (data || []).map(d => { const nm = d.full_name || d.profile?.full_name || 'Driver';
-      return `<option value="${d.id}">${esc(nm)}${d.is_available ? '' : ' (off shift)'}</option>`; }).join('');
+      return `<option value="${d.id}">${esc(nm)}${carInfo(d) ? ' — ' + esc(carInfo(d)) : ''}${d.is_available ? '' : ' (off shift)'}</option>`; }).join('');
 }
 
 async function createReservation() {
@@ -496,7 +499,7 @@ async function createReservation() {
 async function loadSalesList() {
   const box = $('salesList'); if (!box) return;
   const { data, error } = await SB.from('reservations')
-    .select('*, driver:drivers(full_name, profile:profiles(full_name))')
+    .select('*, driver:drivers(full_name, plate_no, car_type, profile:profiles(full_name))')
     .order('pickup_at', { ascending: true });
   if (error) { box.innerHTML = `<p class="err">${esc(error.message)}</p>`; return; }
   box.innerHTML = reservationTable(data, { showDriver: true });
@@ -535,7 +538,7 @@ async function renderDriver() {
     const el = $('drvMap');
     if (el.classList.contains('hidden')) {
       el.classList.remove('hidden');
-      let q = SB.from('reservations').select('*, driver:drivers(full_name)').eq('driver_id', myDriverId).not('lat', 'is', null);
+      let q = SB.from('reservations').select('*, driver:drivers(full_name, plate_no, car_type)').eq('driver_id', myDriverId).not('lat', 'is', null);
       const { data } = await q;
       let rows = data || [];
       if (drvDate) rows = rows.filter(r => dayKey(r.pickup_at) === drvDate);
@@ -676,7 +679,7 @@ async function renderMap() {
 
 async function loadMap() {
   const { data, error } = await SB.from('reservations')
-    .select('*, driver:drivers(full_name)')
+    .select('*, driver:drivers(full_name, plate_no, car_type)')
     .not('lat', 'is', null);
   if (error) { $('mapMsg').textContent = error.message; return; }
   let rows = data || [];
@@ -755,6 +758,8 @@ async function renderManagement() {
         <div><label>Full name *</label><input id="d_name" placeholder="Driver Rahman"/></div>
         <div><label>Phone (OTP) *</label><input id="d_phone" placeholder="0501234567 or 971501234567"/></div>
         <div><label>License no.</label><input id="d_lic" placeholder="DL-123456"/></div>
+        <div><label>Car type</label><input id="d_car" placeholder="Toyota Camry"/></div>
+        <div><label>Plate number</label><input id="d_plate" placeholder="A 12345"/></div>
       </div>
       <div style="height:12px"></div>
       <button id="btnAddDriver" class="btn">Add driver</button>
@@ -804,7 +809,8 @@ async function addDriver() {
   msg.style.color = 'var(--muted)'; msg.textContent = 'Saving…';
   const digits = normPhoneDigits(rawPhone);
   const { data: ins, error } = await SB.from('drivers')
-    .insert({ full_name, phone, license_no: $('d_lic').value.trim() || null, is_available: true })
+    .insert({ full_name, phone, license_no: $('d_lic').value.trim() || null, is_available: true,
+              car_type: $('d_car').value.trim() || null, plate_no: $('d_plate').value.trim() || null })
     .select('id').single();
   if (error) { msg.style.color = 'var(--danger)'; msg.textContent = error.message; return; }
   // If this phone already signed in (e.g. as sales), convert them to a driver now.
@@ -814,7 +820,7 @@ async function addDriver() {
     await SB.from('profiles').update({ role: 'driver', is_active: true }).eq('id', prof.id);
   }
   msg.style.color = 'var(--ok)'; msg.textContent = '✓ Driver added. Creating login…';
-  ['d_name','d_phone','d_lic'].forEach(id => $(id).value = '');
+  ['d_name','d_phone','d_lic','d_car','d_plate'].forEach(id => $(id).value = '');
   loadDrivers();
   await setDriverPassword(ins.id, full_name);
   msg.textContent = '✓ Driver added.';
@@ -850,16 +856,27 @@ async function setDriverPassword(driverId, name) {
 
 async function loadDrivers() {
   const box = $('driversList'); if (!box) return;
-  const { data, error } = await SB.from('drivers').select('id, full_name, phone, license_no, is_available, profile_id').order('full_name');
+  const { data, error } = await SB.from('drivers').select('id, full_name, phone, license_no, car_type, plate_no, is_available, profile_id').order('full_name');
   if (error) { box.innerHTML = `<p class="err">${esc(error.message)}</p>`; return; }
   if (!data.length) { box.innerHTML = `<p class="muted">No drivers yet.</p>`; return; }
-  box.innerHTML = `<table><thead><tr><th>Name</th><th>Phone</th><th>License</th><th>Status</th><th></th></tr></thead><tbody>${
+  box.innerHTML = `<table><thead><tr><th>Name</th><th>Phone</th><th>License</th><th>Car type</th><th>Plate</th><th>Status</th><th></th></tr></thead><tbody>${
     data.map(d => `<tr>
       <td>${esc(d.full_name || '—')}</td><td>${esc(d.phone || '—')}</td><td>${esc(d.license_no || '—')}</td>
+      <td>${esc(d.car_type || '—')}</td><td><b>${esc(d.plate_no || '—')}</b></td>
       <td>${d.profile_id ? '<span class="badge s-accepted">signed in</span>' : '<span class="badge s-pending">not yet</span>'} ${d.is_available ? '' : '· off'}</td>
-      <td class="row-actions"><button class="btn secondary sm" data-drvpw="${d.id}" data-name="${esc(d.full_name || '')}">Set password</button>
+      <td class="row-actions"><button class="btn secondary sm" data-drvcar="${d.id}" data-car="${esc(d.car_type || '')}" data-plate="${esc(d.plate_no || '')}">Edit car</button>
+        <button class="btn secondary sm" data-drvpw="${d.id}" data-name="${esc(d.full_name || '')}">Set password</button>
         <button class="btn ghost sm" data-deldriver="${d.id}">Remove</button></td></tr>`).join('')
   }</tbody></table>`;
+  box.querySelectorAll('[data-drvcar]').forEach(b => b.onclick = async () => {
+    const car = prompt('Car type (e.g. Toyota Camry):', b.dataset.car);
+    if (car === null) return;
+    const plate = prompt('Plate number (e.g. A 12345):', b.dataset.plate);
+    if (plate === null) return;
+    const { error } = await SB.from('drivers').update({ car_type: car.trim() || null, plate_no: plate.trim() || null }).eq('id', b.dataset.drvcar);
+    if (error) alert(error.message);
+    loadDrivers();
+  });
   box.querySelectorAll('[data-drvpw]').forEach(b => b.onclick = () => {
     if (confirm('Create a NEW password for this driver? Their old password will stop working.')) setDriverPassword(b.dataset.drvpw, b.dataset.name);
   });
@@ -966,7 +983,7 @@ async function loadTiles() {
 async function loadMgrList() {
   const box = $('mgrList'); if (!box) return;
   let q = SB.from('reservations')
-    .select('*, driver:drivers(full_name, profile:profiles(full_name)), creator:profiles!reservations_created_by_fkey(full_name)')
+    .select('*, driver:drivers(full_name, plate_no, car_type, profile:profiles(full_name)), creator:profiles!reservations_created_by_fkey(full_name)')
     .order('pickup_at', { ascending: true });
   if (mgrFilter === 'pending') q = q.eq('status', 'pending');
   if (mgrFilter === 'accepted') q = q.eq('status', 'accepted');
@@ -1019,7 +1036,7 @@ function reservationTable(rows, opts = {}) {
       <td>${esc(r.reference_code)}</td>
       <td>${esc(r.client_name)}<div class="res-loc">${esc(r.location_text || '')}</div>${r.driver_note ? `<div class="meta">🚖 ${esc(r.driver_note)}</div>` : ''}</td>
       <td>${esc(r.purpose.replace('_',' '))}</td>
-      ${opts.showDriver ? `<td>${esc(r.driver?.full_name || r.driver?.profile?.full_name || '—')}</td>` : ''}
+      ${opts.showDriver ? `<td>${esc(r.driver?.full_name || r.driver?.profile?.full_name || '—')}${carInfo(r.driver) ? `<div class="res-loc">${esc(carInfo(r.driver))}</div>` : ''}</td>` : ''}
       ${opts.showCreator ? `<td>${esc(r.creator?.full_name || '—')}</td>` : ''}
       <td>${tripWindow(r)}</td>
       <td>${statusBadge(r.status)}</td>
