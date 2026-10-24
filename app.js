@@ -253,6 +253,8 @@ async function onSignedIn(user) {
 
   if (!profile.is_active) { renderAwaitingApproval(); return; }
 
+  await ensureNotifyPhone();
+
   try { const { data: ap } = await SB.rpc('is_room_approver'); isApprover = !!ap; } catch (e) { isApprover = false; }
 
   // Home button (everyone except drivers) returns to the "Car / Meeting room" choice
@@ -263,6 +265,35 @@ async function onSignedIn(user) {
 
   subscribeRealtime();
   landing();
+}
+
+// Staff who sign in with email have no phone on file -> ask once for the mobile that receives SMS alerts.
+async function ensureNotifyPhone() {
+  if (profile.role === 'driver') return;
+  if (!('notify_phone' in profile)) return;        // database patch_15 not applied yet
+  if (profile.notify_phone || profile.phone) return;
+  await new Promise((resolve) => {
+    const bg = el(`<div class="modal-bg"><div class="modal">
+      <h2 style="margin-top:0">📱 Your mobile number</h2>
+      <p class="meta" style="margin:0 0 10px">We send SMS alerts here (driver accepted / rejected, room approved, reminders).</p>
+      <input id="npPhone" type="tel" placeholder="0501234567" autocomplete="tel"/>
+      <div id="npMsg" class="meta" style="margin:8px 0;color:var(--danger)"></div>
+      <button class="btn" id="npSave" style="width:100%">Save</button>
+      <div style="height:8px"></div>
+      <button class="btn ghost sm" id="npSkip" style="width:100%">Skip for now</button>
+    </div></div>`);
+    $('modalMount').innerHTML = ''; $('modalMount').appendChild(bg);
+    const done = () => { $('modalMount').innerHTML = ''; resolve(); };
+    bg.querySelector('#npSkip').onclick = done;
+    bg.querySelector('#npSave').onclick = async () => {
+      const raw = bg.querySelector('#npPhone').value.trim();
+      if (!validUaePhone(raw)) { bg.querySelector('#npMsg').textContent = 'Enter a valid UAE mobile, e.g. 0501234567.'; return; }
+      const phone = toE164(raw);
+      const { error } = await SB.from('profiles').update({ notify_phone: phone }).eq('id', me.id);
+      if (error) { bg.querySelector('#npMsg').textContent = error.message; return; }
+      profile.notify_phone = phone; done();
+    };
+  });
 }
 
 function renderAwaitingApproval() {
